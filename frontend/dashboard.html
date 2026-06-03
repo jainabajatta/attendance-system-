@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - Vision Attendance System</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: 'Segoe UI', sans-serif;
+        }
+
+        .dashboard-container {
+            padding: 20px;
+        }
+
+        .video-container {
+            background: #000;
+            border-radius: 20px;
+            overflow: hidden;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+            position: relative;
+        }
+
+        #videoElement {
+            width: 100%;
+            height: auto;
+            transform: scaleX(-1);
+        }
+
+        .recognition-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+
+        .face-box {
+            position: absolute;
+            border: 3px solid #00ff00;
+            border-radius: 10px;
+            box-shadow: 0 0 20px rgba(0,255,0,0.5);
+            animation: pulse 1s infinite;
+        }
+
+        .face-label {
+            position: absolute;
+            background: rgba(0,0,0,0.7);
+            color: #00ff00;
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-size: 12px;
+            top: -30px;
+            left: 0;
+            white-space: nowrap;
+        }
+
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(0,255,0,0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(0,255,0,0); }
+            100% { box-shadow: 0 0 0 0 rgba(0,255,0,0); }
+        }
+
+        .attendance-list {
+            background: white;
+            border-radius: 20px;
+            padding: 20px;
+            height: 500px;
+            overflow-y: auto;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+        }
+
+        .attendance-item {
+            padding: 10px;
+            border-bottom: 1px solid #eee;
+            animation: slideIn 0.5s ease;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        .status-badge {
+            padding: 5px 10px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .status-present {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .stats-card {
+            background: white;
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            transition: transform 0.3s;
+        }
+
+        .stats-card:hover {
+            transform: translateY(-5px);
+        }
+
+        .stats-number {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .control-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 10px;
+            margin: 5px;
+            transition: all 0.3s;
+        }
+
+        .control-btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+    </style>
+</head>
+<body>
+    <div class="dashboard-container">
+        <div class="container-fluid">
+            <!-- Header -->
+            <div class="row mb-4">
+                <div class="col">
+                    <h1 class="text-white">
+                        <i class="fas fa-tachometer-alt me-2"></i>
+                        Attendance Dashboard
+                    </h1>
+                    <p class="text-white-50">Real-time face recognition and attendance tracking</p>
+                </div>
+                <div class="col text-end">
+                    <button class="control-btn" onclick="location.href='/'">
+                        <i class="fas fa-home me-2"></i>Home
+                    </button>
+                    <button class="control-btn" onclick="trainSystem()">
+                        <i class="fas fa-brain me-2"></i>Train System
+                    </button>
+                </div>
+            </div>
+
+            <div class="row">
+                <!-- Video Feed Column -->
+                <div class="col-md-7">
+                    <div class="video-container">
+                        <video id="videoElement" autoplay playsinline></video>
+                        <canvas id="overlayCanvas" class="recognition-overlay"></canvas>
+                    </div>
+                    <div class="mt-3 text-center">
+                        <span class="badge bg-success" id="recognitionStatus">
+                            <i class="fas fa-circle me-1"></i> Active
+                        </span>
+                        <span class="badge bg-info ms-2" id="fpsCounter">FPS: 0</span>
+                    </div>
+                </div>
+
+                <!-- Attendance List Column -->
+                <div class="col-md-5">
+                    <div class="attendance-list">
+                        <h4>
+                            <i class="fas fa-list me-2"></i>
+                            Today's Attendance
+                            <span id="attendanceCount" class="badge bg-primary float-end">0</span>
+                        </h4>
+                        <hr>
+                        <div id="attendanceList">
+                            <div class="text-center text-muted">
+                                <i class="fas fa-camera fa-3x mb-3"></i>
+                                <p>Start camera to mark attendance</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Statistics Row -->
+            <div class="row mt-4">
+                <div class="col-md-3">
+                    <div class="stats-card">
+                        <i class="fas fa-users fa-2x text-primary mb-2"></i>
+                        <div class="stats-number" id="statTotalUsers">0</div>
+                        <div>Total Registered</div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="stats-card">
+                        <i class="fas fa-check-circle fa-2x text-success mb-2"></i>
+                        <div class="stats-number" id="statPresentToday">0</div>
+                        <div>Present Today</div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="stats-card">
+                        <i class="fas fa-chart-line fa-2x text-info mb-2"></i>
+                        <div class="stats-number" id="statAttendanceRate">0%</div>
+                        <div>Attendance Rate</div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="stats-card">
+                        <i class="fas fa-clock fa-2x text-warning mb-2"></i>
+                        <div class="stats-number" id="statSessionTime">0</div>
+                        <div>Session Time (s)</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let video = document.getElementById('videoElement');
+        let canvas = document.getElementById('overlayCanvas');
+        let ctx = canvas.getContext('2d');
+        let ws = null;
+        let stream = null;
+        let sessionStart = Date.now();
+        let fps = 0;
+        let frameCount = 0;
+        let lastFpsUpdate = Date.now();
+        let markedAttendance = new Set();
+
+        // Initialize camera
+        async function initCamera() {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { 
+                        width: { ideal: 640 },
+                        height: { ideal: 480 },
+                        facingMode: "user"
+                    } 
+                });
+                video.srcObject = stream;
+                await video.play();
+                
+                // Set canvas size
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                
+                // Initialize WebSocket
+                initWebSocket();
+                
+                // Start processing
+                requestAnimationFrame(processFrame);
+                updateStats();
+            } catch (error) {
+                console.error('Camera error:', error);
+                document.getElementById('recognitionStatus').innerHTML = 
+                    '<i class="fas fa-exclamation-triangle me-1"></i> Camera Error';
+                document.getElementById('recognitionStatus').className = 'badge bg-danger';
+            }
+        }
+
+        // Initialize WebSocket
+        function initWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            ws = new WebSocket(`${protocol}//${window.location.host}/ws/recognize`);
+            
+            ws.onopen = () => {
+                console.log('WebSocket connected');
+            };
+            
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                if (data.type === 'recognition') {
+                    drawFaceBoxes(data.faces);
+                    updateAttendanceList(data.faces);
+                }
+            };
+            
+            ws.onerror = (error) => {
+                console.error('WebSocket error:', error);
+            };
+        }
+
+        // Process video frame
+        async function processFrame() {
+            if (!video.videoWidth) {
+                requestAnimationFrame(processFrame);
+                return;
+            }
+            
+            // Update FPS
+            frameCount++;
+            const now = Date.now();
+            if (now - lastFpsUpdate >= 1000) {
+                fps = frameCount;
+                document.getElementById('fpsCounter').innerHTML = `FPS: ${fps}`;
+                frameCount = 0;
+                lastFpsUpdate = now;
+            }
+            
+            // Capture frame
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = video.videoWidth;
+            tempCanvas.height = video.videoHeight;
+            const tempCtx = tempCanvas.getContext('2d');
+            tempCtx.drawImage(video, 0, 0, video.videoWidth, video.videoHeight);
+            
+            // Send to server if WebSocket is open
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                const frameData = tempCanvas.toDataURL('image/jpeg', 0.8);
+                ws.send(frameData);
+            }
+            
+            requestAnimationFrame(processFrame);
+        }
+
+        // Draw face boxes on overlay
+        function drawFaceBoxes(faces) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            faces.forEach(face => {
+                const [x, y, w, h] = face.bbox;
+                
+                // Draw box
+                ctx.strokeStyle = face.confidence > 65 ? '#00ff00' : '#ffaa00';
+                ctx.lineWidth = 3;
+                ctx.strokeRect(x, y, w, h);
+                
+                // Draw label
+                ctx.fillStyle = 'rgba(0,0,0,0.7)';
+                ctx.fillRect(x, y-25, ctx.measureText(face.name).width + 20, 25);
+                ctx.fillStyle = face.confidence > 65 ? '#00ff00' : '#ffaa00';
+                ctx.font = '14px Arial';
+                ctx.fillText(`${face.name} (${face.confidence.toFixed(1)}%)`, x+5, y-8);
+            });
+        }
+
+        // Update attendance list
+        function updateAttendanceList(faces) {
+            const newMarkings = faces.filter(face => 
+                face.confidence > 65 && !markedAttendance.has(face.name)
+            );
+            
+            newMarkings.forEach(face => {
+                markedAttendance.add(face.name);
+                addAttendanceItem(face);
+            });
+            
+            document.getElementById('attendanceCount').textContent = markedAttendance.size;
+            updateStats();
+        }
+
+        // Add attendance item to list
+        function addAttendanceItem(face) {
+            const list = document.getElementById('attendanceList');
+            const item = document.createElement('div');
+            item.className = 'attendance-item';
+            item.innerHTML = `
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <strong>${face.name}</strong><br>
+                        <small class="text-muted">Confidence: ${face.confidence.toFixed(1)}%</small>
+                    </div>
+                    <span class="status-badge status-present">
+                        <i class="fas fa-check-circle me-1"></i>Present
+                    </span>
+                </div>
+            `;
+            
+            if (list.children[0].classList.contains('text-center')) {
+                list.innerHTML = '';
+            }
+            list.insertBefore(item, list.firstChild);
+        }
+
+        // Update statistics
+        async function updateStats() {
+            try {
+                const response = await fetch('/api/statistics');
+                const stats = await response.json();
+                
+                document.getElementById('statTotalUsers').textContent = stats.total_users;
+                document.getElementById('statPresentToday').textContent = stats.today_attendance;
+                
+                const rate = stats.total_users > 0 ? 
+                    ((stats.today_attendance / stats.total_users) * 100).toFixed(1) : 0;
+                document.getElementById('statAttendanceRate').textContent = `${rate}%`;
+                
+                const sessionTime = Math.floor((Date.now() - sessionStart) / 1000);
+                document.getElementById('statSessionTime').textContent = sessionTime;
+            } catch (error) {
+                console.error('Error updating stats:', error);
+            }
+        }
+
+        // Train system
+        async function trainSystem() {
+            const btn = event.target.closest('button');
+            const originalText = btn.innerHTML;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Training...';
+            btn.disabled = true;
+            
+            try {
+                const response = await fetch('/api/train', { method: 'POST' });
+                const result = await response.json();
+                
+                if (result.success) {
+                    alert('System trained successfully!');
+                } else {
+                    alert('Training failed: ' + result.message);
+                }
+            } catch (error) {
+                alert('Error training system: ' + error.message);
+            } finally {
+                btn.innerHTML = originalText;
+                btn.disabled = false;
+            }
+        }
+
+        // Load today's attendance on page load
+        async function loadTodaysAttendance() {
+            try {
+                const response = await fetch('/api/attendance/today');
+                const records = await response.json();
+                
+                records.forEach(record => {
+                    markedAttendance.add(record.name);
+                    addAttendanceItem({
+                        name: record.name,
+                        confidence: parseFloat(record.confidence)
+                    });
+                });
+                
+                document.getElementById('attendanceCount').textContent = markedAttendance.size;
+            } catch (error) {
+                console.error('Error loading attendance:', error);
+            }
+        }
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', () => {
+            if (ws) {
+                ws.close();
+            }
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+            }
+        });
+
+        // Initialize
+        initCamera();
+        loadTodaysAttendance();
+        setInterval(updateStats, 5000);
+    </script>
+</body>
+</html>

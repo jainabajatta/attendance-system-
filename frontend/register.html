@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Register - Vision Attendance System</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: 'Segoe UI', sans-serif;
+        }
+
+        .register-container {
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+
+        .card-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .camera-preview {
+            background: #000;
+            border-radius: 10px;
+            overflow: hidden;
+            margin-bottom: 20px;
+            position: relative;
+        }
+
+        #cameraVideo {
+            width: 100%;
+            height: auto;
+            transform: scaleX(-1);
+        }
+
+        .sample-gallery {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+            gap: 10px;
+            margin-top: 20px;
+            max-height: 200px;
+            overflow-y: auto;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 10px;
+        }
+
+        .sample-image {
+            width: 100%;
+            aspect-ratio: 1;
+            object-fit: cover;
+            border-radius: 5px;
+            border: 2px solid #dee2e6;
+            transition: transform 0.3s;
+        }
+
+        .sample-image:hover {
+            transform: scale(1.05);
+        }
+
+        .progress {
+            height: 30px;
+            border-radius: 15px;
+            margin: 20px 0;
+        }
+
+        .progress-bar {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            transition: width 0.3s ease;
+        }
+
+        .capture-btn {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 10;
+        }
+
+        .quality-indicator {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-size: 12px;
+            z-index: 10;
+        }
+    </style>
+</head>
+<body>
+    <div class="register-container">
+        <div class="card">
+            <div class="card-header">
+                <i class="fas fa-user-plus fa-3x mb-3"></i>
+                <h2>Register New User</h2>
+                <p class="mb-0">Capture multiple face samples for accurate recognition</p>
+            </div>
+            
+            <div class="card-body p-4">
+                <!-- User Information Form -->
+                <form id="registerForm">
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Full Name *</label>
+                            <input type="text" class="form-control" id="name" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Employee ID *</label>
+                            <input type="text" class="form-control" id="employeeId" required>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Department</label>
+                        <select class="form-select" id="department">
+                            <option value="General">General</option>
+                            <option value="HR">Human Resources</option>
+                            <option value="IT">Information Technology</option>
+                            <option value="Finance">Finance</option>
+                            <option value="Marketing">Marketing</option>
+                            <option value="Operations">Operations</option>
+                        </select>
+                    </div>
+                    
+                    <!-- Camera Section -->
+                    <div class="camera-preview">
+                        <video id="cameraVideo" autoplay playsinline></video>
+                        <canvas id="captureCanvas" style="display: none;"></canvas>
+                        <div class="quality-indicator" id="qualityIndicator">
+                            <i class="fas fa-camera"></i> Ready
+                        </div>
+                        <button type="button" class="btn btn-success capture-btn" onclick="captureSample()">
+                            <i class="fas fa-camera me-2"></i>Capture Sample
+                        </button>
+                    </div>
+                    
+                    <!-- Progress -->
+                    <div class="progress">
+                        <div class="progress-bar" id="progressBar" role="progressbar" style="width: 0%">
+                            <span id="progressText">0/30 samples</span>
+                        </div>
+                    </div>
+                    
+                    <!-- Sample Gallery -->
+                    <div class="sample-gallery" id="sampleGallery">
+                        <div class="text-center text-muted p-3">
+                            <i class="fas fa-camera fa-2x mb-2 d-block"></i>
+                            Capture face samples (minimum 30)
+                        </div>
+                    </div>
+                    
+                    <!-- Action Buttons -->
+                    <div class="d-grid gap-2 d-md-flex justify-content-md-end mt-4">
+                        <button type="button" class="btn btn-secondary" onclick="location.href='/dashboard'">
+                            <i class="fas fa-times me-2"></i>Cancel
+                        </button>
+                        <button type="button" class="btn btn-primary" onclick="registerUser()" id="registerBtn" disabled>
+                            <i class="fas fa-save me-2"></i>Register User
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let video = document.getElementById('cameraVideo');
+        let canvas = document.getElementById('captureCanvas');
+        let samples = [];
+        let stream = null;
+        let faceDetector = null;
+        
+        // Initialize camera
+        async function initCamera() {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { 
+                        width: { ideal: 640 },
+                        height: { ideal: 480 },
+                        facingMode: "user"
+                    } 
+                });
+                video.srcObject = stream;
+                await video.play();
+                
+                // Set canvas size
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+            } catch (error) {
+                console.error('Camera error:', error);
+                document.getElementById('qualityIndicator').innerHTML = 
+                    '<i class="fas fa-exclamation-triangle me-1"></i> Camera Error';
+            }
+        }
+        
+        // Capture face sample
+        async function captureSample() {
+            if (samples.length >= 50) {
+                alert('Maximum 50 samples reached!');
+                return;
+            }
+            
+            const context = canvas.getContext('2d');
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+            
+            // Here you would normally detect face and crop
+            // For simplicity, we'll use the whole frame
+            const imageData = canvas.toDataURL('image/jpeg', 0.8);
+            
+            // Calculate face quality (simulated)
+            const quality = Math.random() * 30 + 70; // Simulate 70-100% quality
+            
+            if (quality > 60) {
+                samples.push(imageData);
+                updateGallery();
+                updateProgress();
+                
+                // Visual feedback
+                const indicator = document.getElementById('qualityIndicator');
+                indicator.innerHTML = `<i class="fas fa-check-circle me-1"></i> Captured! (${samples.length}/50)`;
+                indicator.style.backgroundColor = 'rgba(0,255,0,0.7)';
+                setTimeout(() => {
+                    indicator.innerHTML = `<i class="fas fa-camera me-1"></i> Ready`;
+                    indicator.style.backgroundColor = 'rgba(0,0,0,0.7)';
+                }, 1000);
+            } else {
+                document.getElementById('qualityIndicator').innerHTML = 
+                    '<i class="fas fa-exclamation-triangle me-1"></i> Low quality, try again';
+                setTimeout(() => {
+                    document.getElementById('qualityIndicator').innerHTML = 
+                        '<i class="fas fa-camera me-1"></i> Ready';
+                }, 1000);
+            }
+        }
+        
+        // Update sample gallery
+        function updateGallery() {
+            const gallery = document.getElementById('sampleGallery');
+            gallery.innerHTML = '';
+            
+            samples.forEach((sample, index) => {
+                const img = document.createElement('img');
+                img.src = sample;
+                img.className = 'sample-image';
+                img.title = `Sample ${index + 1}`;
+                gallery.appendChild(img);
+            });
+            
+            if (samples.length === 0) {
+                gallery.innerHTML = `
+                    <div class="text-center text-muted p-3">
+                        <i class="fas fa-camera fa-2x mb-2 d-block"></i>
+                        Capture face samples (minimum 30)
+                    </div>
+                `;
+            }
+        }
+        
+        // Update progress bar
+        function updateProgress() {
+            const progress = Math.min(100, (samples.length / 30) * 100);
+            const progressBar = document.getElementById('progressBar');
+            const progressText = document.getElementById('progressText');
+            
+            progressBar.style.width = `${progress}%`;
+            progressText.textContent = `${samples.length}/30 samples`;
+            
+            // Enable register button if enough samples
+            const registerBtn = document.getElementById('registerBtn');
+            registerBtn.disabled = samples.length < 30;
+            
+            if (samples.length >= 30) {
+                progressBar.classList.add('bg-success');
+                progressText.innerHTML = '<i class="fas fa-check me-1"></i> Ready to register!';
+            }
+        }
+        
+        // Register user
+        async function registerUser() {
+            if (samples.length < 30) {
+                alert(`Please capture at least 30 face samples. Current: ${samples.length}`);
+                return;
+            }
+            
+            const name = document.getElementById('name').value;
+            const employeeId = document.getElementById('employeeId').value;
+            const department = document.getElementById('department').value;
+            
+            if (!name || !employeeId) {
+                alert('Please fill in all required fields');
+                return;
+            }
+            
+            const registerBtn = document.getElementById('registerBtn');
+            registerBtn.disabled = true;
+            registerBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Registering...';
+            
+            try {
+                const formData = new FormData();
+                formData.append('name', name);
+                formData.append('employee_id', employeeId);
+                formData.append('department', department);
+                formData.append('face_images', JSON.stringify(samples));
+                
+                const response = await fetch('/api/register', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    alert(`Registration successful!\n\nUser: ${name}\nID: ${employeeId}\nSamples: ${samples.length}`);
+                    window.location.href = '/dashboard';
+                } else {
+                    alert('Registration failed: ' + result.message);
+                    registerBtn.disabled = false;
+                    registerBtn.innerHTML = '<i class="fas fa-save me-2"></i>Register User';
+                }
+            } catch (error) {
+                alert('Error during registration: ' + error.message);
+                registerBtn.disabled = false;
+                registerBtn.innerHTML = '<i class="fas fa-save me-2"></i>Register User';
+            }
+        }
+        
+        // Cleanup
+        window.addEventListener('beforeunload', () => {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+            }
+        });
+        
+        // Initialize
+        initCamera();
+    </script>
+</body>
+</html>
