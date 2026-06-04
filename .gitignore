@@ -1,0 +1,17 @@
+# Python cache
+__pycache__/
+*.pyc
+
+# Virtual environment
+.venv/
+
+# Generated data files
+backend/data/*.db
+backend/data/*.pkl
+backend/data/*.yml
+
+# Uploaded face images
+backend/uploads/
+
+# Windows files
+Thumbs.db

@@ -2,17 +2,19 @@
 Face recognition module for web application
 """
 
+import os
+import pickle
+from datetime import datetime
+from pathlib import Path
+from typing import List, Dict, Optional
+
 import cv2
 import numpy as np
-import pickle
-import os
-from typing import List, Dict, Tuple, Optional
-from pathlib import Path
-from datetime import datetime
-import json
+from fastapi import HTTPException
+
 
 class FaceRecognitionSystem:
-    """Handles all face recognition operations"""
+    """Handles all face recognition operations using Haar Cascades and LBPH"""
     
     def __init__(self):
         self.face_cascade = cv2.CascadeClassifier(
@@ -24,6 +26,11 @@ class FaceRecognitionSystem:
         self.known_faces = {}
         self.model_path = "data/recognizer_model.yml"
         self.faces_path = "data/known_faces.pkl"
+        
+        # Ensure workspace directories exist
+        os.makedirs("data", exist_ok=True)
+        os.makedirs("uploads/faces", exist_ok=True)
+        
         self.training_status = {
             "is_trained": False,
             "last_training": None,
@@ -31,11 +38,17 @@ class FaceRecognitionSystem:
         }
         self.load_data()
     
-    def load_data(self):
-        """Load existing face data"""
+    def load_data(self) -> None:
+        """Load existing face data and metadata profiles"""
         if os.path.exists(self.faces_path):
-            with open(self.faces_path, 'rb') as f:
-                self.known_faces = pickle.load(f)
+            try:
+                with open(self.faces_path, 'rb') as f:
+                    loaded_faces = pickle.load(f)
+                    # Force integer mapping for keys to maintain alignment with LBPH labels
+                    self.known_faces = {int(k): v for k, v in loaded_faces.items()}
+            except Exception as e:
+                print(f"Warning: Metadata file corrupted, re-initializing profiles. Info: {e}")
+                self.known_faces = {}
         
         if os.path.exists(self.model_path):
             try:
@@ -44,11 +57,12 @@ class FaceRecognitionSystem:
                 self.training_status["last_training"] = datetime.fromtimestamp(
                     os.path.getmtime(self.model_path)
                 ).isoformat()
-            except:
-                pass
+            except Exception as e:
+                print(f"Warning: Weight model file unreadable, training needed. Info: {e}")
+                self.training_status["is_trained"] = False
     
-    def save_data(self):
-        """Save face data"""
+    def save_data(self) -> None:
+        """Save local weight matrices and profile records to disk"""
         with open(self.faces_path, 'wb') as f:
             pickle.dump(self.known_faces, f)
         
@@ -56,9 +70,8 @@ class FaceRecognitionSystem:
             self.recognizer.write(self.model_path)
     
     def register_face(self, user_id: int, name: str, face_samples: List[np.ndarray]) -> bool:
-        """Register a new face with multiple samples"""
+        """Register a new face profile with multiple training frame samples"""
         try:
-            # Store face samples
             user_dir = Path(f"uploads/faces/user_{user_id}")
             user_dir.mkdir(parents=True, exist_ok=True)
             
@@ -66,8 +79,8 @@ class FaceRecognitionSystem:
                 sample_path = user_dir / f"sample_{idx}.jpg"
                 cv2.imwrite(str(sample_path), sample)
             
-            # Store metadata
-            self.known_faces[user_id] = {
+            # Store structured user metadata profile
+            self.known_faces[int(user_id)] = {
                 "name": name,
                 "samples": len(face_samples),
                 "registration_date": datetime.now().isoformat()
@@ -77,16 +90,16 @@ class FaceRecognitionSystem:
             return True
             
         except Exception as e:
-            print(f"Registration error: {e}")
+            print(f"Registration processing failed: {e}")
             return False
     
     def train_model(self) -> bool:
-        """Train the face recognition model"""
+        """Train the local LBPH face recognition model from scratch"""
         try:
             faces = []
             labels = []
             
-            # Collect all training samples
+            # Collect all registered image sequences
             for user_id in self.known_faces:
                 user_dir = Path(f"uploads/faces/user_{user_id}")
                 if user_dir.exists():
@@ -94,24 +107,24 @@ class FaceRecognitionSystem:
                         img = cv2.imread(str(sample_path), cv2.IMREAD_GRAYSCALE)
                         if img is not None:
                             faces.append(img)
-                            labels.append(user_id)
+                            labels.append(int(user_id))
             
             if len(faces) > 0:
-                self.recognizer.train(faces, np.array(labels))
+                self.recognizer.train(faces, np.array(labels, dtype=np.int32))
                 self.training_status["is_trained"] = True
                 self.training_status["last_training"] = datetime.now().isoformat()
                 self.training_status["samples_count"] = len(faces)
                 self.save_data()
                 return True
             
-            return False
+            raise ValueError("No valid face samples found. Please register students before initializing training.")
             
         except Exception as e:
-            print(f"Training error: {e}")
-            return False
+            print(f"Training operation halted: {e}")
+            raise HTTPException(status_code=400, detail=str(e))
     
     def recognize_faces(self, frame: np.ndarray) -> List[Dict]:
-        """Recognize faces in a frame"""
+        """Detect and classify faces within a live image frame"""
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         gray = cv2.equalizeHist(gray)
         
@@ -124,47 +137,50 @@ class FaceRecognitionSystem:
         for (x, y, w, h) in faces:
             face_roi = gray[y:y+h, x:x+w]
             face_roi = cv2.resize(face_roi, (100, 100))
+            bbox = [int(x), int(y), int(w), int(h)]
             
             if self.training_status["is_trained"]:
                 try:
                     label, confidence = self.recognizer.predict(face_roi)
+                    # Map LBPH distance values roughly into a 0-100% metric scale
                     confidence_percent = max(0, min(100, 100 - (confidence / 2)))
                     
-                    if confidence_percent > 50 and label in self.known_faces:
+                    if confidence_percent > 50 and int(label) in self.known_faces:
                         results.append({
-                            "user_id": label,
-                            "name": self.known_faces[label]["name"],
-                            "confidence": confidence_percent,
-                            "bbox": [int(x), int(y), int(w), int(h)]
+                            "user_id": int(label),
+                            "name": self.known_faces[int(label)]["name"],
+                            "confidence": round(confidence_percent, 2),
+                            "bbox": bbox
                         })
                     else:
                         results.append({
                             "user_id": -1,
                             "name": "Unknown",
-                            "confidence": confidence_percent,
-                            "bbox": [int(x), int(y), int(w), int(h)]
+                            "confidence": round(confidence_percent, 2),
+                            "bbox": bbox
                         })
-                except:
+                except Exception as e:
+                    print(f"Error executing prediction frame step: {e}")
                     results.append({
                         "user_id": -1,
                         "name": "Unknown",
-                        "confidence": 0,
-                        "bbox": [int(x), int(y), int(w), int(h)]
+                        "confidence": 0.0,
+                        "bbox": bbox
                     })
             else:
                 results.append({
                     "user_id": -1,
                     "name": "Not Trained",
-                    "confidence": 0,
-                    "bbox": [int(x), int(y), int(w), int(h)]
+                    "confidence": 0.0,
+                    "bbox": bbox
                 })
         
         return results
     
     def get_last_training_date(self) -> Optional[str]:
-        """Get last training date"""
+        """Get last recorded successful training timestamp"""
         return self.training_status["last_training"]
     
     def get_training_status(self) -> Dict:
-        """Get training status"""
+        """Fetch current validation status details"""
         return self.training_status
